@@ -8,26 +8,10 @@ exports.getDashboardStats = async (req, res) => {
   try {
     const { range = 'week' } = req.query;
 
-    // Date range filter
-    const now = new Date();
-    let startDate = new Date();
-    if (range === 'day') {
-      startDate.setDate(now.getDate() - 1);
-    } else if (range === 'month') {
-      startDate.setDate(now.getDate() - 30);
-    } else {
-      // default week
-      startDate.setDate(now.getDate() - 7);
-    }
+    const whereClause = {};
 
-    const whereClause = {
-      createdAt: {
-        [Op.gte]: startDate
-      }
-    };
-
-    // Admin department filtering if needed
-    if (req.user.department && req.user.department !== 'all') {
+    // Admin department filtering if applicable
+    if (req.user && req.user.department && req.user.department !== 'all') {
       whereClause.department = req.user.department;
     }
 
@@ -62,7 +46,7 @@ exports.getDashboardStats = async (req, res) => {
       byPriority[p] = await Issue.count({ where: { ...whereClause, priority: p } });
     }
 
-    // 6. Average Resolution Time
+    // 6. Dynamic Average Resolution Time Calculation
     const resolvedIssues = await Issue.findAll({
       where: {
         ...whereClause,
@@ -72,16 +56,22 @@ exports.getDashboardStats = async (req, res) => {
     });
 
     let totalResolutionDays = 0;
+    let countWithValidDates = 0;
     resolvedIssues.forEach(issue => {
-      const diffMs = new Date(issue.resolvedAt) - new Date(issue.createdAt);
-      totalResolutionDays += diffMs / (1000 * 60 * 60 * 24);
+      if (issue.createdAt && issue.resolvedAt) {
+        const diffMs = new Date(issue.resolvedAt) - new Date(issue.createdAt);
+        if (!isNaN(diffMs) && diffMs >= 0) {
+          totalResolutionDays += diffMs / (1000 * 60 * 60 * 24);
+          countWithValidDates++;
+        }
+      }
     });
 
-    const averageResolutionTime = resolvedIssues.length > 0
-      ? (totalResolutionDays / resolvedIssues.length).toFixed(1)
+    const averageResolutionTime = countWithValidDates > 0
+      ? (totalResolutionDays / countWithValidDates).toFixed(1)
       : 0;
 
-    // 7. Department Performance
+    // 7. Department Performance (Dynamic)
     const departmentPerformance = [];
     for (const dept of departments) {
       const openCount = await Issue.count({
@@ -92,26 +82,18 @@ exports.getDashboardStats = async (req, res) => {
       });
 
       const totalDept = openCount + resolvedCount;
-      const performanceScore = totalDept > 0 ? Math.round((resolvedCount / totalDept) * 100) : 100;
+      const performanceScore = totalDept > 0 ? Math.round((resolvedCount / totalDept) * 100) : 0;
 
       departmentPerformance.push({
         department: dept,
         open: openCount,
         resolved: resolvedCount,
-        averageTime: '2.5',
+        averageTime: averageResolutionTime > 0 ? String(averageResolutionTime) : '0',
         performance: performanceScore
       });
     }
 
-    // 8. Problem Hotspots (Top areas)
-    const hotspotAreas = [
-      { location: 'Main Street & 5th Ave', count: 12, category: 'roads' },
-      { location: 'Central Park West', count: 8, category: 'sanitation' },
-      { location: 'Downtown Commercial Sector', count: 6, category: 'electricity' },
-      { location: 'North District Zone 3', count: 5, category: 'water' }
-    ];
-
-    // 9. Recent Activity
+    // 8. Recent Activity (Dynamic from real issues)
     const recentIssues = await Issue.findAll({
       limit: 5,
       order: [['createdAt', 'DESC']],
@@ -134,7 +116,7 @@ exports.getDashboardStats = async (req, res) => {
       byPriority,
       averageResolutionTime,
       departmentPerformance,
-      hotspotAreas,
+      hotspotAreas: [],
       recentActivity
     });
   } catch (error) {
@@ -148,23 +130,17 @@ exports.getDashboardStats = async (req, res) => {
 // @access  Private (Admin)
 exports.getTrends = async (req, res) => {
   try {
-    const { range = 'week' } = req.query;
-
-    const trends = [
-      { date: 'Mon', reported: 12, resolved: 8 },
-      { date: 'Tue', reported: 19, resolved: 14 },
-      { date: 'Wed', reported: 15, resolved: 12 },
-      { date: 'Thu', reported: 22, resolved: 18 },
-      { date: 'Fri', reported: 25, resolved: 20 },
-      { date: 'Sat', reported: 10, resolved: 15 },
-      { date: 'Sun', reported: 8, resolved: 10 }
-    ];
+    const issues = await Issue.findAll({
+      attributes: ['createdAt', 'status', 'category'],
+      order: [['createdAt', 'ASC']]
+    });
 
     res.status(200).json({
       success: true,
-      trends
+      count: issues.length,
+      trends: issues
     });
   } catch (error) {
-    res.status(500).json({ message: 'Server error', error: error.message });
+    res.status(500).json({ message: error.message });
   }
 };

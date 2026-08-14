@@ -1,27 +1,40 @@
 const { Sequelize, DataTypes } = require('sequelize');
 const dotenv = require('dotenv');
+const bcrypt = require('bcryptjs');
 
 dotenv.config();
 
-// Sequelize connection with fallback defaults
-const sequelize = new Sequelize(
-  process.env.DB_NAME || 'smart_city',
-  process.env.DB_USER || 'root',
-  process.env.DB_PASSWORD ? process.env.DB_PASSWORD.trim() : '',
-  {
-    host: process.env.DB_HOST || 'localhost',
-    dialect: 'mysql',
-    logging: console.log,
-    pool: {
-      max: 5,
-      min: 0,
-      acquire: 30000,
-      idle: 10000
-    }
-  }
-);
+let sequelize;
 
-// Define User Model
+const createMySQLInstance = () => {
+  return new Sequelize(
+    process.env.DB_NAME || 'smart_city',
+    process.env.DB_USER || 'root',
+    process.env.DB_PASSWORD ? process.env.DB_PASSWORD.trim() : '',
+    {
+      host: process.env.DB_HOST || 'localhost',
+      dialect: 'mysql',
+      logging: false,
+      pool: { max: 10, min: 0, acquire: 10000, idle: 5000 }
+    }
+  );
+};
+
+const createSQLiteInstance = () => {
+  return new Sequelize({
+    dialect: 'sqlite',
+    storage: process.env.VERCEL ? '/tmp/smart_city_clean_v8.sqlite' : './smart_city_clean_v8.sqlite',
+    logging: false
+  });
+};
+
+if (process.env.VERCEL || process.env.DB_DIALECT === 'sqlite') {
+  sequelize = createSQLiteInstance();
+} else {
+  sequelize = createMySQLInstance();
+}
+
+// User Model
 const User = sequelize.define('User', {
   id: {
     type: DataTypes.INTEGER,
@@ -46,7 +59,7 @@ const User = sequelize.define('User', {
     defaultValue: 'citizen'
   },
   phone: {
-    type: DataTypes.STRING(15),
+    type: DataTypes.STRING(20),
     allowNull: true
   },
   department: {
@@ -55,7 +68,7 @@ const User = sequelize.define('User', {
   },
   isVerified: {
     type: DataTypes.BOOLEAN,
-    defaultValue: false
+    defaultValue: true
   },
   createdAt: {
     type: DataTypes.DATE,
@@ -63,7 +76,63 @@ const User = sequelize.define('User', {
   }
 });
 
-// Define Issue Model
+// OTP Model
+const OTP = sequelize.define('OTP', {
+  id: {
+    type: DataTypes.INTEGER,
+    primaryKey: true,
+    autoIncrement: true
+  },
+  identifier: {
+    type: DataTypes.STRING(100),
+    allowNull: false
+  },
+  phone: {
+    type: DataTypes.STRING(20),
+    allowNull: true
+  },
+  otpHash: {
+    type: DataTypes.STRING(255),
+    allowNull: false
+  },
+  purpose: {
+    type: DataTypes.ENUM('REGISTRATION', 'FORGOT_PASSWORD'),
+    allowNull: false
+  },
+  expiresAt: {
+    type: DataTypes.DATE,
+    allowNull: false
+  },
+  resendCooldown: {
+    type: DataTypes.DATE,
+    allowNull: false
+  },
+  attempts: {
+    type: DataTypes.INTEGER,
+    defaultValue: 0
+  },
+  isUsed: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false
+  },
+  metaData: {
+    type: DataTypes.TEXT,
+    allowNull: true,
+    get() {
+      const val = this.getDataValue('metaData');
+      return val ? JSON.parse(val) : null;
+    },
+    set(val) {
+      this.setDataValue('metaData', val ? JSON.stringify(val) : null);
+    }
+  },
+  createdAt: {
+    type: DataTypes.DATE,
+    defaultValue: DataTypes.NOW
+  }
+});
+
+// Issue Model
 const Issue = sequelize.define('Issue', {
   id: {
     type: DataTypes.INTEGER,
@@ -87,11 +156,11 @@ const Issue = sequelize.define('Issue', {
     defaultValue: 'medium'
   },
   latitude: {
-    type: DataTypes.DECIMAL(10, 8),
+    type: DataTypes.FLOAT,
     allowNull: false
   },
   longitude: {
-    type: DataTypes.DECIMAL(11, 8),
+    type: DataTypes.FLOAT,
     allowNull: false
   },
   address: {
@@ -104,63 +173,49 @@ const Issue = sequelize.define('Issue', {
   },
   department: {
     type: DataTypes.STRING(50),
+    allowNull: true
+  },
+  reportedBy: {
+    type: DataTypes.INTEGER,
     allowNull: false
   },
-  photos: {
-    type: DataTypes.JSON,
-    defaultValue: []
-  },
-  isDuplicate: {
-    type: DataTypes.BOOLEAN,
-    defaultValue: false
-  },
-  duplicateScore: {
-    type: DataTypes.FLOAT,
-    defaultValue: 0
+  assignedTo: {
+    type: DataTypes.INTEGER,
+    allowNull: true
   },
   upvoteCount: {
     type: DataTypes.INTEGER,
     defaultValue: 0
   },
-  slaDeadline: {
-    type: DataTypes.DATE,
-    allowNull: true
+  photos: {
+    type: DataTypes.TEXT,
+    allowNull: true,
+    get() {
+      const raw = this.getDataValue('photos');
+      return raw ? JSON.parse(raw) : [];
+    },
+    set(val) {
+      this.setDataValue('photos', JSON.stringify(val || []));
+    }
   },
   resolutionNotes: {
     type: DataTypes.TEXT,
     allowNull: true
   },
   resolutionPhotos: {
-    type: DataTypes.JSON,
-    defaultValue: []
+    type: DataTypes.TEXT,
+    allowNull: true,
+    get() {
+      const raw = this.getDataValue('resolutionPhotos');
+      return raw ? JSON.parse(raw) : [];
+    },
+    set(val) {
+      this.setDataValue('resolutionPhotos', JSON.stringify(val || []));
+    }
   },
   resolvedAt: {
     type: DataTypes.DATE,
     allowNull: true
-  },
-  reportedBy: {
-    type: DataTypes.INTEGER,
-    allowNull: false,
-    references: {
-      model: 'Users',
-      key: 'id'
-    }
-  },
-  assignedTo: {
-    type: DataTypes.INTEGER,
-    allowNull: true,
-    references: {
-      model: 'Users',
-      key: 'id'
-    }
-  },
-  verifiedBy: {
-    type: DataTypes.INTEGER,
-    allowNull: true,
-    references: {
-      model: 'Users',
-      key: 'id'
-    }
   },
   createdAt: {
     type: DataTypes.DATE,
@@ -168,7 +223,7 @@ const Issue = sequelize.define('Issue', {
   }
 });
 
-// Define Status History Model
+// StatusHistory Model
 const StatusHistory = sequelize.define('StatusHistory', {
   id: {
     type: DataTypes.INTEGER,
@@ -177,27 +232,19 @@ const StatusHistory = sequelize.define('StatusHistory', {
   },
   issueId: {
     type: DataTypes.INTEGER,
-    allowNull: false,
-    references: {
-      model: 'Issues',
-      key: 'id'
-    }
+    allowNull: false
   },
   status: {
-    type: DataTypes.ENUM('reported', 'acknowledged', 'in_progress', 'resolved', 'verified', 'closed', 'reopened'),
+    type: DataTypes.STRING(50),
     allowNull: false
   },
   notes: {
     type: DataTypes.TEXT,
     allowNull: true
   },
-  updatedBy: {
+  changedBy: {
     type: DataTypes.INTEGER,
-    allowNull: true,
-    references: {
-      model: 'Users',
-      key: 'id'
-    }
+    allowNull: true
   },
   createdAt: {
     type: DataTypes.DATE,
@@ -205,7 +252,7 @@ const StatusHistory = sequelize.define('StatusHistory', {
   }
 });
 
-// Define Upvote Model
+// Upvote Model
 const Upvote = sequelize.define('Upvote', {
   id: {
     type: DataTypes.INTEGER,
@@ -214,19 +261,11 @@ const Upvote = sequelize.define('Upvote', {
   },
   issueId: {
     type: DataTypes.INTEGER,
-    allowNull: false,
-    references: {
-      model: 'Issues',
-      key: 'id'
-    }
+    allowNull: false
   },
   userId: {
     type: DataTypes.INTEGER,
-    allowNull: false,
-    references: {
-      model: 'Users',
-      key: 'id'
-    }
+    allowNull: false
   },
   createdAt: {
     type: DataTypes.DATE,
@@ -234,7 +273,7 @@ const Upvote = sequelize.define('Upvote', {
   }
 });
 
-// Define Relationships
+// Relationships
 User.hasMany(Issue, { foreignKey: 'reportedBy', as: 'reportedIssues' });
 User.hasMany(Issue, { foreignKey: 'assignedTo', as: 'assignedIssues' });
 Issue.belongsTo(User, { foreignKey: 'reportedBy', as: 'reporter' });
@@ -248,21 +287,53 @@ Upvote.belongsTo(Issue, { foreignKey: 'issueId' });
 User.hasMany(Upvote, { foreignKey: 'userId' });
 Upvote.belongsTo(User, { foreignKey: 'userId' });
 
-// Sync database
+// Clean Seed Handler: Purges pre-seeded issues for clean zero initial dashboard
+const seedDemoData = async () => {
+  try {
+    // Purge any residual pre-seeded issues
+    await Issue.destroy({ where: {} });
+
+    const userCount = await User.count();
+    if (userCount === 0) {
+      console.log('Seeding primary user profile...');
+      const salt = await bcrypt.genSalt(10);
+      const commonPass = await bcrypt.hash('password123', salt);
+
+      await User.create({
+        name: 'Ayushi Pawar',
+        email: 'aayushipawar2004@gmail.com',
+        password: commonPass,
+        role: 'citizen',
+        phone: '+917489393094',
+        isVerified: true
+      });
+    }
+  } catch (e) {
+    console.warn('Seeding notice:', e.message);
+  }
+};
+
 const syncDatabase = async () => {
   try {
     await sequelize.authenticate();
-    console.log('MySQL connection established.');
     await sequelize.sync({ alter: true });
-    console.log('Database synchronized');
+    await seedDemoData();
   } catch (error) {
-    console.error('Unable to connect to database:', error);
+    try {
+      sequelize = createSQLiteInstance();
+      await sequelize.authenticate();
+      await sequelize.sync({ alter: true });
+      await seedDemoData();
+    } catch (fallbackErr) {
+      console.error('Fallback DB sync error:', fallbackErr.message);
+    }
   }
 };
 
 module.exports = {
   sequelize,
   User,
+  OTP,
   Issue,
   StatusHistory,
   Upvote,

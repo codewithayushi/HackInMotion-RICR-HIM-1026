@@ -32,41 +32,86 @@ exports.geocodeLocation = async (req, res) => {
 
     const query = q.trim();
 
-    // 1. Try Esri World Geocoding API (Fast, global, complete street/city addresses)
+    // 1. Primary: OpenStreetMap Nominatim API (Free Geocoding)
     try {
-      const esriUrl = `https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates?f=json&singleLine=${encodeURIComponent(query)}&maxLocations=8`;
-      const esriRes = await axios.get(esriUrl, { timeout: 4000 });
-      
-      const candidates = esriRes.data?.candidates || [];
-      if (candidates.length > 0) {
-        const results = candidates.map(item => ({
-          display_name: item.address,
-          lat: item.location.y,
-          lon: item.location.x
+      const nomUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=8&addressdetails=1`;
+      const nomRes = await axios.get(nomUrl, {
+        headers: { 'User-Agent': 'SmartCityIssueReportingPlatform/2.0 (contact@smartcity.gov.in)' },
+        timeout: 4500
+      });
+
+      if (nomRes.data && Array.isArray(nomRes.data) && nomRes.data.length > 0) {
+        const nomResults = nomRes.data.map(item => ({
+          display_name: item.display_name,
+          lat: parseFloat(item.lat),
+          lon: parseFloat(item.lon),
+          type: item.type || 'place',
+          importance: item.importance || 0
         }));
-        return res.status(200).json({ success: true, data: results });
+        return res.status(200).json({ success: true, data: nomResults });
       }
-    } catch (e) {
-      console.warn('Esri geocode fallback:', e.message);
+    } catch (nomErr) {
+      console.warn('Nominatim geocode fallback attempt:', nomErr.message);
     }
 
-    // 2. Fallback to OpenStreetMap Nominatim API
-    const nomUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=8`;
-    const nomRes = await axios.get(nomUrl, {
-      headers: { 'User-Agent': 'SmartCityIssuePlatform/1.0' },
-      timeout: 4000
-    });
-
-    const nomResults = (nomRes.data || []).map(item => ({
-      display_name: item.display_name,
-      lat: parseFloat(item.lat),
-      lon: parseFloat(item.lon)
+    // 2. Secondary Fallback: Esri World Geocoding
+    const esriUrl = `https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates?f=json&singleLine=${encodeURIComponent(query)}&maxLocations=8`;
+    const esriRes = await axios.get(esriUrl, { timeout: 4500 });
+    
+    const candidates = esriRes.data?.candidates || [];
+    const results = candidates.map(item => ({
+      display_name: item.address,
+      lat: item.location.y,
+      lon: item.location.x,
+      type: 'place'
     }));
 
-    res.status(200).json({ success: true, data: nomResults });
+    res.status(200).json({ success: true, data: results });
   } catch (error) {
     console.error('Geocoding error:', error.message);
     res.status(200).json({ success: true, data: [] });
+  }
+};
+
+// @desc    Reverse geocode coordinates to formatted address
+// @route   GET /api/issues/reverse-geocode
+// @access  Public
+exports.reverseGeocodeLocation = async (req, res) => {
+  try {
+    const { lat, lon, lng } = req.query;
+    const latitude = parseFloat(lat);
+    const longitude = parseFloat(lon || lng);
+
+    if (isNaN(latitude) || isNaN(longitude)) {
+      return res.status(400).json({ success: false, message: 'Valid latitude and longitude query parameters are required' });
+    }
+
+    try {
+      const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=18&addressdetails=1`;
+      const response = await axios.get(url, {
+        headers: { 'User-Agent': 'SmartCityIssueReportingPlatform/2.0 (contact@smartcity.gov.in)' },
+        timeout: 4500
+      });
+
+      if (response.data && response.data.display_name) {
+        return res.status(200).json({
+          success: true,
+          display_name: response.data.display_name,
+          address: response.data.address || {}
+        });
+      }
+    } catch (nomErr) {
+      console.warn('Nominatim reverse geocode fallback:', nomErr.message);
+    }
+
+    // Fallback formatted coordinates string
+    res.status(200).json({
+      success: true,
+      display_name: `Location (${latitude.toFixed(5)}, ${longitude.toFixed(5)})`
+    });
+  } catch (error) {
+    console.error('Reverse geocode error:', error.message);
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
@@ -75,103 +120,179 @@ exports.geocodeLocation = async (req, res) => {
 // @access  Private (Citizen)
 exports.createIssue = async (req, res) => {
   try {
-    const { title, description, category, location, priority } = req.body;
+    console.log('[Create Issue Request] Body keys:', Object.keys(req.body));
+    console.log('[Create Issue Request] Files received:', req.files?.length || 0);
 
-    if (!title || !description || !category) {
-      return res.status(400).json({ message: 'Title, description, and category are required' });
-    }
-
-    // Parse location
-    let latitude = 0;
-    let longitude = 0;
-    let address = '';
-
-    if (location) {
-      const parsedLocation = typeof location === 'string' ? JSON.parse(location) : location;
-      if (parsedLocation.coordinates) {
-        longitude = parsedLocation.coordinates[0];
-        latitude = parsedLocation.coordinates[1];
-      } else if (parsedLocation.lat && parsedLocation.lng) {
-        latitude = parsedLocation.lat;
-        longitude = parsedLocation.lng;
-      }
-      address = parsedLocation.address || '';
-    }
-
-    // Check for duplicates
-    const duplicateCheck = await detectDuplicates({
-      category,
-      coordinates: [longitude, latitude],
-      description,
-      title
-    });
-
-    let isDuplicate = false;
-    let duplicateScore = 0;
-
-    if (duplicateCheck.isDuplicate) {
-      isDuplicate = true;
-      duplicateScore = duplicateCheck.score;
-    }
-
-    // Handle photo uploads
-    let photos = [];
-    if (req.files && req.files.length > 0) {
-      photos = await Promise.all(
-        req.files.map(async (file) => {
-          const result = await uploadToS3(file, 'issues');
-          return { url: result.url, key: result.key };
-        })
-      );
-    }
-
-    const assignedDepartment = routeIssue(category);
-
-    // Create issue in MySQL via Sequelize
-    const issue = await Issue.create({
+    const {
       title,
       description,
       category,
-      priority: priority || 'medium',
+      priority = 'medium',
+      location,
+      latitude: bodyLat,
+      longitude: bodyLng,
+      address: bodyAddr
+    } = req.body;
+
+    if (!title || !description || !category) {
+      return res.status(400).json({
+        success: false,
+        message: 'Title, description, and category are required fields'
+      });
+    }
+
+    // Universal Coordinate & Address Resolver
+    let latitude = parseFloat(bodyLat);
+    let longitude = parseFloat(bodyLng);
+    let address = bodyAddr || '';
+
+    if (location) {
+      try {
+        const parsed = typeof location === 'string' ? JSON.parse(location) : location;
+        if (parsed.coordinates && Array.isArray(parsed.coordinates)) {
+          longitude = parseFloat(parsed.coordinates[0]);
+          latitude = parseFloat(parsed.coordinates[1]);
+        } else if (parsed.lat !== undefined && (parsed.lng !== undefined || parsed.lon !== undefined)) {
+          latitude = parseFloat(parsed.lat);
+          longitude = parseFloat(parsed.lng || parsed.lon);
+        }
+        if (parsed.address && !address) {
+          address = parsed.address;
+        }
+      } catch (err) {
+        console.warn('Could not parse location payload:', err.message);
+      }
+    }
+
+    // Provide default safe fallback coordinates if unassigned
+    if (isNaN(latitude) || isNaN(longitude)) {
+      latitude = 22.7196; // Default Smart City Center
+      longitude = 75.8577;
+    }
+
+    if (!address) {
+      address = `Coordinates: ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
+    }
+
+    // Handle photo uploads (both base64 JSON payload and Multer binary files)
+    let photos = [];
+    if (req.body.photos) {
+      if (Array.isArray(req.body.photos)) {
+        photos = req.body.photos.map(p => typeof p === 'string' ? { url: p, key: 'photo' } : p);
+      } else if (typeof req.body.photos === 'string') {
+        try {
+          const parsedPhotos = JSON.parse(req.body.photos);
+          photos = Array.isArray(parsedPhotos) ? parsedPhotos : [{ url: req.body.photos, key: 'photo' }];
+        } catch (e) {
+          photos = [{ url: req.body.photos, key: 'photo' }];
+        }
+      }
+    } else if (req.files && req.files.length > 0) {
+      try {
+        photos = await Promise.all(
+          req.files.map(async (file) => {
+            const result = await uploadToS3(file, 'issues');
+            return { url: result.url, key: result.key };
+          })
+        );
+      } catch (uploadErr) {
+        console.warn('File upload warning, continuing issue creation:', uploadErr.message);
+      }
+    }
+
+    // AI / Geospatial Duplicate Check (Safe Execution)
+    let isDuplicate = false;
+    let duplicateScore = 0;
+    let duplicateCheck = { isDuplicate: false };
+
+    try {
+      duplicateCheck = await detectDuplicates({
+        category,
+        coordinates: [longitude, latitude],
+        description,
+        title
+      });
+
+      if (duplicateCheck && duplicateCheck.isDuplicate) {
+        isDuplicate = true;
+        duplicateScore = duplicateCheck.score || 0;
+      }
+    } catch (dupErr) {
+      console.warn('Duplicate detection bypassed:', dupErr.message);
+    }
+
+    // Department routing calculation
+    const assignedDepartment = routeIssue(category) || category;
+
+    // Calculate SLA deadline based on priority
+    const slaDaysMap = { urgent: 1, high: 2, medium: 5, low: 10 };
+    const slaDays = slaDaysMap[priority] || 5;
+    const slaDeadline = new Date(Date.now() + slaDays * 24 * 60 * 60 * 1000);
+
+    const reporterId = req.user ? req.user.id : 1;
+
+    // Create issue in MySQL / SQLite via Sequelize
+    const issue = await Issue.create({
+      title: title.trim(),
+      description: description.trim(),
+      category,
+      priority,
       latitude,
       longitude,
       address,
       department: assignedDepartment,
-      reportedBy: req.user.id,
+      reportedBy: reporterId,
       photos,
       isDuplicate,
       duplicateScore,
-      status: 'reported'
+      status: 'reported',
+      slaDeadline
     });
 
     // Create initial status history entry
-    await StatusHistory.create({
-      issueId: issue.id,
-      status: 'reported',
-      notes: 'Issue reported by citizen',
-      updatedBy: req.user.id
-    });
+    try {
+      await StatusHistory.create({
+        issueId: issue.id,
+        status: 'reported',
+        notes: 'Issue reported by citizen',
+        updatedBy: reporterId
+      });
+    } catch (shErr) {
+      console.warn('Status history creation warning:', shErr.message);
+    }
 
-    // Fetch reporter info
-    const populatedIssue = await Issue.findByPk(issue.id, {
-      include: [{ model: User, as: 'reporter', attributes: ['id', 'name', 'email'] }]
-    });
+    // Populate reporter info
+    let populatedIssue;
+    try {
+      populatedIssue = await Issue.findByPk(issue.id, {
+        include: [{ model: User, as: 'reporter', attributes: ['id', 'name', 'email'] }]
+      });
+    } catch (e) {
+      populatedIssue = issue;
+    }
 
-    const issueData = populatedIssue.toJSON();
+    const issueData = populatedIssue.toJSON ? populatedIssue.toJSON() : populatedIssue;
     issueData.photos = parsePhotos(issueData.photos);
+
+    console.log(`[Issue Created Successfully] ID: ${issue.id}, Department: ${assignedDepartment}`);
 
     res.status(201).json({
       success: true,
+      message: 'Civic issue reported successfully!',
       data: issueData,
-      duplicateWarning: duplicateCheck.isDuplicate ? {
+      duplicateWarning: isDuplicate ? {
         message: 'Similar issue found nearby',
-        score: duplicateCheck.score,
+        score: duplicateScore,
         existingIssue: duplicateCheck.existingIssue
       } : null
     });
   } catch (error) {
-    console.error('Error creating issue:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    console.error('CRITICAL Error in createIssue:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Server error while submitting issue',
+      error: error.message
+    });
   }
 };
 
@@ -186,7 +307,7 @@ exports.getIssues = async (req, res) => {
       department,
       priority,
       reportedBy,
-      limit = 20,
+      limit = 50,
       page = 1
     } = req.query;
 
@@ -197,17 +318,15 @@ exports.getIssues = async (req, res) => {
     if (department) where.department = department;
     if (priority) where.priority = priority;
 
-    // Role-based filtering
-    if (req.user.role === 'citizen') {
-      if (!req.query.publicView) {
-        where.reportedBy = req.user.id;
-      }
+    // IMPORTANT: Citizens ONLY see THEIR OWN reported issues (Strict Privacy & Isolation)
+    if (req.user && req.user.role === 'citizen') {
+      where.reportedBy = req.user.id;
     } else if (reportedBy) {
       where.reportedBy = reportedBy;
     }
 
-    const parsedLimit = parseInt(limit);
-    const parsedPage = parseInt(page);
+    const parsedLimit = parseInt(limit, 10) || 50;
+    const parsedPage = parseInt(page, 10) || 1;
     const offset = (parsedPage - 1) * parsedLimit;
 
     const { count, rows: issues } = await Issue.findAndCountAll({
@@ -239,7 +358,7 @@ exports.getIssues = async (req, res) => {
     });
   } catch (error) {
     console.error('Error fetching issues:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    res.status(500).json({ success: false, message: 'Server error', error: error.message });
   }
 };
 
@@ -257,7 +376,7 @@ exports.getIssue = async (req, res) => {
     });
 
     if (!issue) {
-      return res.status(404).json({ message: 'Issue not found' });
+      return res.status(404).json({ success: false, message: 'Issue not found' });
     }
 
     const issueData = issue.toJSON();
@@ -269,7 +388,7 @@ exports.getIssue = async (req, res) => {
     });
   } catch (error) {
     console.error('Error getting issue:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    res.status(500).json({ success: false, message: 'Server error', error: error.message });
   }
 };
 
@@ -283,37 +402,22 @@ exports.updateStatus = async (req, res) => {
 
     const issue = await Issue.findByPk(issueId);
     if (!issue) {
-      return res.status(404).json({ message: 'Issue not found' });
+      return res.status(404).json({ success: false, message: 'Issue not found' });
     }
 
     // Check admin department access
-    if (req.user.role === 'admin' && req.user.department && req.user.department !== issue.department) {
+    if (req.user && req.user.role === 'admin' && req.user.department && req.user.department !== issue.department) {
       return res.status(403).json({
+        success: false,
         message: 'Access denied. This issue belongs to another department.'
       });
     }
 
-    // State transition rules
-    const validTransitions = {
-      'reported': ['acknowledged'],
-      'acknowledged': ['in_progress', 'resolved'],
-      'in_progress': ['resolved'],
-      'resolved': ['verified', 'reopened'],
-      'verified': ['closed', 'reopened'],
-      'reopened': ['acknowledged', 'in_progress']
-    };
-
-    if (!validTransitions[issue.status]?.includes(status)) {
-      return res.status(400).json({
-        message: `Invalid status transition from ${issue.status} to ${status}`
-      });
-    }
-
     const oldStatus = issue.status;
-    issue.status = status;
+    issue.status = status || issue.status;
 
     // Handle resolution details
-    if (status === 'resolved') {
+    if (status === 'resolved' || status === 'closed') {
       issue.resolutionNotes = resolutionNotes || notes;
       issue.resolvedAt = new Date();
 
@@ -329,26 +433,31 @@ exports.updateStatus = async (req, res) => {
     }
 
     if (status === 'verified') {
-      issue.verifiedBy = req.user.id;
+      issue.verifiedBy = req.user ? req.user.id : null;
     }
 
     await issue.save();
 
     // Create status history record
-    await StatusHistory.create({
-      issueId: issue.id,
-      status,
-      notes: notes || `Status changed from ${oldStatus} to ${status}`,
-      updatedBy: req.user.id
-    });
+    try {
+      await StatusHistory.create({
+        issueId: issue.id,
+        status: issue.status,
+        notes: notes || `Status changed from ${oldStatus} to ${issue.status}`,
+        updatedBy: req.user ? req.user.id : null
+      });
+    } catch (shErr) {
+      console.warn('Status history creation warning:', shErr.message);
+    }
 
     res.status(200).json({
       success: true,
+      message: 'Issue status updated successfully',
       data: issue
     });
   } catch (error) {
     console.error('Error updating status:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    res.status(500).json({ success: false, message: 'Server error', error: error.message });
   }
 };
 
@@ -358,11 +467,11 @@ exports.updateStatus = async (req, res) => {
 exports.upvoteIssue = async (req, res) => {
   try {
     const issueId = req.params.id;
-    const userId = req.user.id;
+    const userId = req.user ? req.user.id : 1;
 
     const issue = await Issue.findByPk(issueId);
     if (!issue) {
-      return res.status(404).json({ message: 'Issue not found' });
+      return res.status(404).json({ success: false, message: 'Issue not found' });
     }
 
     const existingVote = await Upvote.findOne({
@@ -392,7 +501,7 @@ exports.upvoteIssue = async (req, res) => {
     });
   } catch (error) {
     console.error('Error upvoting issue:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    res.status(500).json({ success: false, message: 'Server error', error: error.message });
   }
 };
 
@@ -406,7 +515,7 @@ exports.getMapIssues = async (req, res) => {
         status: { [Op.ne]: 'closed' },
         isDuplicate: false
       },
-      attributes: ['id', 'title', 'category', 'status', 'latitude', 'longitude', 'photos', 'priority', 'createdAt'],
+      attributes: ['id', 'title', 'category', 'status', 'latitude', 'longitude', 'photos', 'priority', 'address', 'createdAt'],
       limit: 500
     });
 
@@ -422,6 +531,6 @@ exports.getMapIssues = async (req, res) => {
     });
   } catch (error) {
     console.error('Error getting map issues:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    res.status(500).json({ success: false, message: 'Server error', error: error.message });
   }
 };
