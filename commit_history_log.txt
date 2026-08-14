@@ -113,3 +113,4 @@ Log entry 12 - feat(geocoding): integrate Nominatim debounced location search an
 Log entry 13 - feat(profile): add user profile management, phone number update, and password reset - 08/14/2026 19:40:39
 Log entry 14 - fix(cors): configure universal cross-origin policy for Vercel serverless deployment - 08/14/2026 19:40:40
 Log entry 15 - fix(routing): configure vercel.json rewrite rules and catch-all API handler - 08/14/2026 19:40:40
+Log entry 16 - fix(state): ensure instant issue list sync across citizen and administrator dashboards - 08/14/2026 19:40:41
