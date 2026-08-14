@@ -102,3 +102,4 @@ Log entry 1 - feat(auth): implement 6-digit OTP email verification and session p
 Log entry 2 - feat(citizen): add citizen issue reporting form with photo upload and location autocomplete - 08/14/2026 19:40:33
 Log entry 3 - feat(admin): build municipal admin dashboard with real-time KPI metrics and status filter - 08/14/2026 19:40:34
 Log entry 4 - feat(map): integrate Leaflet GIS map with interactive incident markers and popups - 08/14/2026 19:40:35
+Log entry 5 - feat(rbac): enforce role-based access control for citizen and administrator portals - 08/14/2026 19:40:36
