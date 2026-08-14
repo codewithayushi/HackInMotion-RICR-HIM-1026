@@ -109,3 +109,4 @@ Log entry 8 - style(ui): apply pixel-perfect Tailwind CSS styling, badges, and r
 Log entry 9 - refactor(db): optimize serverless database storage and dynamic resolution time calculations - 08/14/2026 19:40:38
 Log entry 10 - docs(readme): update system architecture, installation guide, and evaluation criteria - 08/14/2026 19:40:38
 Log entry 11 - feat(upvote): add citizen upvoting mechanism and high-priority sorting - 08/14/2026 19:40:38
+Log entry 12 - feat(geocoding): integrate Nominatim debounced location search and address pinning - 08/14/2026 19:40:39
