@@ -286,9 +286,13 @@ const ReportForm = () => {
 
       const userLocalKey = user?.id ? `smartcity_local_issues_${user.id}` : 'smartcity_local_issues';
       try {
-        const existingLocal = JSON.parse(localStorage.getItem(userLocalKey) || '[]');
-        const updatedLocal = [createdRecord, ...existingLocal.filter((i) => String(i.id) !== String(createdRecord.id))];
-        localStorage.setItem(userLocalKey, JSON.stringify(updatedLocal));
+        const existingUserLocal = JSON.parse(localStorage.getItem(userLocalKey) || '[]');
+        const updatedUserLocal = [createdRecord, ...existingUserLocal.filter((i) => String(i.id) !== String(createdRecord.id))];
+        localStorage.setItem(userLocalKey, JSON.stringify(updatedUserLocal));
+
+        const existingGlobal = JSON.parse(localStorage.getItem('smartcity_local_issues') || '[]');
+        const updatedGlobal = [createdRecord, ...existingGlobal.filter((i) => String(i.id) !== String(createdRecord.id))];
+        localStorage.setItem('smartcity_local_issues', JSON.stringify(updatedGlobal));
       } catch (e) {
         console.warn('Local buffer save notice:', e.message);
       }
@@ -297,8 +301,8 @@ const ReportForm = () => {
         setDuplicateWarning(res.data.duplicateWarning);
         toast.warning('Similar issue already reported nearby!', { autoClose: 5000 });
       } else {
-        toast.success('🎉 Civic issue reported successfully!');
-        navigate('/citizen');
+        toast.success('🎉 Official Civic Report generated successfully!');
+        navigate(`/issues/${createdRecord.id}`, { state: { issue: createdRecord } });
       }
     } catch (error) {
       console.error('Issue submission error details:', error.response?.data || error.message);

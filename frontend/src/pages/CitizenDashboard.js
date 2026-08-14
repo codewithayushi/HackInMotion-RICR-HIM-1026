@@ -309,14 +309,13 @@ const CitizenDashboard = () => {
                           <p className="text-xs text-gray-500">
                             {issue.category?.replace('_', ' ')} • {issue.address || 'Smart City'}
                           </p>
-                          <a
-                            href={`/issues/${issue.id}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
+                          <Link
+                            to={`/issues/${issue.id}`}
+                            state={{ issue }}
                             className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-2.5 py-1.5 rounded-lg text-xs block text-center mt-2 shadow transition-all"
                           >
-                            🔍 Open Details & Photos (New Tab) ↗
-                          </a>
+                            🔍 View Full Report →
+                          </Link>
                         </div>
                       </Popup>
                     </Marker>
@@ -348,7 +347,7 @@ const CitizenDashboard = () => {
           </div>
         </div>
       ) : (
-        /* Actual Filled Report Cards with New Tab Inspection Links */
+        /* Actual Filled Report Cards with Instant Report View Links */
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {displayedIssues.map((issue) => {
             const photos = getPhotosArray(issue.photos);
@@ -359,12 +358,11 @@ const CitizenDashboard = () => {
                 key={issue.id}
                 className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden flex flex-col justify-between hover:shadow-md transition-all group"
               >
-                {/* Photo Thumbnail - Clicking opens in New Tab */}
+                {/* Photo Thumbnail */}
                 {firstPhoto ? (
-                  <a
-                    href={`/issues/${issue.id}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
+                  <Link
+                    to={`/issues/${issue.id}`}
+                    state={{ issue }}
                     className="relative h-48 w-full bg-gray-100 overflow-hidden block"
                   >
                     <img
@@ -376,18 +374,17 @@ const CitizenDashboard = () => {
                       📷 {photos.length} Photo{photos.length > 1 ? 's' : ''}
                     </div>
                     <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-xs font-bold gap-1">
-                      <span>🔍 Inspect in New Tab ↗</span>
+                      <span>🔍 View Full Report →</span>
                     </div>
-                  </a>
+                  </Link>
                 ) : (
-                  <a
-                    href={`/issues/${issue.id}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
+                  <Link
+                    to={`/issues/${issue.id}`}
+                    state={{ issue }}
                     className="h-28 bg-slate-50 border-b border-slate-100 flex items-center justify-center text-slate-400 text-xs font-medium hover:bg-slate-100 transition-colors"
                   >
-                    <span>📍 Click to View Map & Details (New Tab) ↗</span>
-                  </a>
+                    <span>📍 Click to View Full Report & Map →</span>
+                  </Link>
                 )}
 
                 <div className="p-5 flex-1 flex flex-col justify-between">
@@ -406,11 +403,10 @@ const CitizenDashboard = () => {
                       </span>
                     </div>
 
-                    {/* Title & Description - Clicking opens in New Tab */}
-                    <a
-                      href={`/issues/${issue.id}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                    {/* Title & Description */}
+                    <Link
+                      to={`/issues/${issue.id}`}
+                      state={{ issue }}
                       className="block group/title"
                     >
                       <h3 className="font-bold text-gray-900 group-hover/title:text-blue-600 transition-colors text-base leading-snug">
@@ -419,7 +415,7 @@ const CitizenDashboard = () => {
                       <p className="text-gray-600 text-xs sm:text-sm mt-1.5 leading-relaxed line-clamp-2">
                         {issue.description}
                       </p>
-                    </a>
+                    </Link>
 
                     {/* Official Response Banner (if available) */}
                     {issue.resolutionNotes && (
@@ -440,19 +436,18 @@ const CitizenDashboard = () => {
                     </div>
                   </div>
 
-                  {/* Card Bottom Bar with Dedicated New Tab Button */}
+                  {/* Card Bottom Bar with Dedicated View Full Report Button */}
                   <div className="mt-4 pt-3 border-t border-gray-100 flex items-center justify-between gap-2 text-xs">
                     <span className="text-gray-600 font-medium capitalize bg-gray-50 px-2 py-1 rounded-md border border-gray-100">
-                      {issue.category.replace('_', ' ')}
+                      {issue.category?.replace('_', ' ')}
                     </span>
-                    <a
-                      href={`/issues/${issue.id}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-3 py-1.5 rounded-xl transition-all shadow-sm flex items-center gap-1 hover:shadow"
+                    <Link
+                      to={`/issues/${issue.id}`}
+                      state={{ issue }}
+                      className="text-blue-600 hover:text-blue-800 font-bold flex items-center gap-1 transition-colors group-hover:translate-x-0.5"
                     >
-                      <span>Open in New Tab ↗</span>
-                    </a>
+                      <span>View Full Report →</span>
+                    </Link>
                   </div>
                 </div>
               </div>

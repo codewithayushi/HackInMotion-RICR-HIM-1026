@@ -447,9 +447,12 @@ const handleGetIssues = async (req, res) => {
 const handleGetSingleIssue = async (req, res) => {
   try {
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0, s-maxage=0');
-    await initDemoAccounts();
-    const rawId = req.params.id || (req.url ? req.url.split('/').pop() : '');
-    const issueId = isNaN(Number(rawId)) ? rawId : Number(rawId);
+    let rawId = req.params?.id;
+    if (!rawId && req.url) {
+      const cleanUrl = req.url.split('?')[0].replace(/\/+$/, '');
+      rawId = cleanUrl.split('/').filter(Boolean).pop();
+    }
+    const issueId = (rawId && !isNaN(Number(rawId))) ? Number(rawId) : (rawId || '1');
 
     let issues = getIssuesStore();
     let issue = issues.find(i => String(i.id) === String(issueId));
