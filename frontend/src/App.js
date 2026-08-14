@@ -6,6 +6,7 @@ import 'react-toastify/dist/ReactToastify.css';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import Navbar from './components/common/Navbar';
 import Footer from './components/common/Footer';
+import ErrorBoundary from './components/common/ErrorBoundary';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import CitizenDashboard from './pages/CitizenDashboard';
@@ -53,10 +54,11 @@ function App() {
         <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
           <Navbar />
           <main className="flex-grow">
-            <Routes>
-              <Route path="/" element={<HomeRedirect />} />
-              <Route path="/login" element={<LoginPage />} />
-              <Route path="/register" element={<RegisterPage />} />
+            <ErrorBoundary>
+              <Routes>
+                <Route path="/" element={<HomeRedirect />} />
+                <Route path="/login" element={<LoginPage />} />
+                <Route path="/register" element={<RegisterPage />} />
               
               <Route
                 path="/citizen"
@@ -101,6 +103,7 @@ function App() {
 
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
+          </ErrorBoundary>
           </main>
           <Footer />
           <ToastContainer position="top-right" autoClose={3500} hideProgressBar={false} />
