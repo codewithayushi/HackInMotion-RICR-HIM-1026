@@ -111,3 +111,4 @@ Log entry 10 - docs(readme): update system architecture, installation guide, and
 Log entry 11 - feat(upvote): add citizen upvoting mechanism and high-priority sorting - 08/14/2026 19:40:38
 Log entry 12 - feat(geocoding): integrate Nominatim debounced location search and address pinning - 08/14/2026 19:40:39
 Log entry 13 - feat(profile): add user profile management, phone number update, and password reset - 08/14/2026 19:40:39
+Log entry 14 - fix(cors): configure universal cross-origin policy for Vercel serverless deployment - 08/14/2026 19:40:40
